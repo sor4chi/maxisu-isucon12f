@@ -652,8 +652,12 @@ func (h *Handler) obtainItem(usersTx *sqlx.Tx, gachasTx *sqlx.Tx, userID, itemID
 // initialize 初期化処理
 // POST /initialize
 func initialize(c echo.Context) error {
+	wg := sync.WaitGroup{}
+
 	for i := 4; i <= 7; i++ {
+		wg.Add(1)
 		go func(i int) {
+			defer wg.Done()
 			dbIp := fmt.Sprintf("192.168.0.%d", i)
 			dbHostConfig := fmt.Sprintf("ISUCON_DB_HOST=%s", dbIp)
 
@@ -671,6 +675,8 @@ func initialize(c echo.Context) error {
 			}
 		}(i)
 	}
+
+	wg.Wait()
 
 	return successResponse(c, &InitializeResponse{
 		Language: "go",
