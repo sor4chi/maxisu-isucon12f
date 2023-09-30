@@ -652,10 +652,10 @@ func (h *Handler) obtainItem(usersTx *sqlx.Tx, gachasTx *sqlx.Tx, userID, itemID
 // initialize 初期化処理
 // POST /initialize
 func initialize(c echo.Context) error {
-	wg := sync.WaitGroup{}
+	wg := &sync.WaitGroup{}
 
-	wg.Add(4)
 	for i := 4; i <= 7; i++ {
+		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
 			dbIp := fmt.Sprintf("192.168.0.%d", i)
