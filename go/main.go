@@ -1196,8 +1196,8 @@ func (h *Handler) listPresent(c echo.Context) error {
 	offset := PresentCountPerPage * (n - 1)
 	presentList := []*UserPresent{}
 	query := `
-	SELECT * FROM user_presents
-	WHERE user_id = ? AND deleted_at IS NULL
+	SELECT * FROM user_presents_remaining
+	WHERE user_id = ?
 	ORDER BY created_at DESC, id
 	LIMIT ? OFFSET ?`
 	if err = h.DB.Select(&presentList, query, userID, PresentCountPerPage, offset); err != nil {
@@ -1205,7 +1205,7 @@ func (h *Handler) listPresent(c echo.Context) error {
 	}
 
 	var presentCount int
-	if err = h.DB.Get(&presentCount, "SELECT COUNT(*) FROM user_presents WHERE user_id = ? AND deleted_at IS NULL", userID); err != nil {
+	if err = h.DB.Get(&presentCount, "SELECT COUNT(*) FROM user_presents_remaining WHERE user_id = ?", userID); err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
@@ -1256,7 +1256,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 	}
 
 	// 未取得のプレゼント取得
-	query := "SELECT * FROM user_presents WHERE id IN (?) AND deleted_at IS NULL"
+	query := "SELECT * FROM user_presents_remaining WHERE id IN (?)"
 	query, params, err := sqlx.In(query, req.PresentIDs)
 	if err != nil {
 		return errorResponse(c, http.StatusBadRequest, err)
