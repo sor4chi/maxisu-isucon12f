@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"sync"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -1851,21 +1852,18 @@ func noContentResponse(c echo.Context, status int) error {
 	return c.NoContent(status)
 }
 
+var (
+	mutex sync.Mutex
+	id    int64 = 1
+)
+
 // generateID ユニークなIDを生成する
 func (h *Handler) generateID() (int64, error) {
-	id, err := generateUUID()
-	if err != nil {
-		return 0, err
-	}
+	mutex.Lock()
+	defer mutex.Unlock()
 
-	idInt, err := strconv.ParseInt(id, 16, 64)
-	if err != nil {
-		return 0, err
-	}
-
-	compressTo12Digits := idInt / 1_000
-
-	return compressTo12Digits, nil
+	id++
+	return id, nil
 }
 
 // generateUUID UUIDの生成
