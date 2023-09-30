@@ -39,6 +39,70 @@ mysql-conf-deploy-s1:
 	sudo cp -r s1/etc/mysql/* /etc/mysql
 	sudo systemctl restart mysql
 
+.PHONY: conf-deploy-s2
+conf-deploy-s2: nginx-conf-deploy-s2 mysql-conf-deploy-s2
+
+.PHONY: nginx-conf-deploy-s2
+nginx-conf-deploy-s2:
+	echo "nginx conf deploy"
+	sudo cp -r s2/etc/nginx/* /etc/nginx
+	sudo nginx -t
+	sudo systemctl restart nginx
+
+.PHONY: mysql-conf-deploy-s2
+mysql-conf-deploy-s2:
+	echo "mysql conf deploy"
+	sudo cp -r s2/etc/mysql/* /etc/mysql
+	sudo systemctl restart mysql
+
+.PHONY: conf-deploy-s3
+conf-deploy-s3: nginx-conf-deploy-s3 mysql-conf-deploy-s3
+
+.PHONY: nginx-conf-deploy-s3
+nginx-conf-deploy-s3:
+	echo "nginx conf deploy"
+	sudo cp -r s3/etc/nginx/* /etc/nginx
+	sudo nginx -t
+	sudo systemctl restart nginx
+
+.PHONY: mysql-conf-deploy-s3
+mysql-conf-deploy-s3:
+	echo "mysql conf deploy"
+	sudo cp -r s3/etc/mysql/* /etc/mysql
+	sudo systemctl restart mysql
+
+.PHONY: conf-deploy-s4
+conf-deploy-s4: nginx-conf-deploy-s4 mysql-conf-deploy-s4
+
+.PHONY: nginx-conf-deploy-s4
+nginx-conf-deploy-s4:
+	echo "nginx conf deploy"
+	sudo cp -r s4/etc/nginx/* /etc/nginx
+	sudo nginx -t
+	sudo systemctl restart nginx
+
+.PHONY: mysql-conf-deploy-s4
+mysql-conf-deploy-s4:
+	echo "mysql conf deploy"
+	sudo cp -r s4/etc/mysql/* /etc/mysql
+	sudo systemctl restart mysql
+
+.PHONY: conf-deploy-s5
+conf-deploy-s5: nginx-conf-deploy-s5 mysql-conf-deploy-s5
+
+.PHONY: nginx-conf-deploy-s5
+nginx-conf-deploy-s5:
+	echo "nginx conf deploy"
+	sudo cp -r s5/etc/nginx/* /etc/nginx
+	sudo nginx -t
+	sudo systemctl restart nginx
+
+.PHONY: mysql-conf-deploy-s5
+mysql-conf-deploy-s5:
+	echo "mysql conf deploy"
+	sudo cp -r s5/etc/mysql/* /etc/mysql
+	sudo systemctl restart mysql
+
 .PHONY: app-deploy
 app-deploy:
 	cd go && make
