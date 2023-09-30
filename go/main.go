@@ -1278,30 +1278,80 @@ func (h *Handler) receivePresent(c echo.Context) error {
 	}
 	defer tx.Rollback() //nolint:errcheck
 
+	errChans := make([]chan error, len(obtainPresent))
+	for i := range errChans {
+		errChans[i] = make(chan error)
+	}
+
 	// 配布処理
+	// for i := range obtainPresent {
+	// 	if obtainPresent[i].DeletedAt != nil {
+	// 		return errorResponse(c, http.StatusInternalServerError, fmt.Errorf("received present"))
+	// 	}
+
+	// 	obtainPresent[i].UpdatedAt = requestAt
+	// 	obtainPresent[i].DeletedAt = &requestAt
+	// 	v := obtainPresent[i]
+	// 	query = "UPDATE user_presents SET deleted_at=?, updated_at=? WHERE id=?"
+	// 	_, err := tx.Exec(query, requestAt, requestAt, v.ID)
+	// 	if err != nil {
+	// 		return errorResponse(c, http.StatusInternalServerError, err)
+	// 	}
+
+	// 	_, _, _, err = h.obtainItem(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
+	// 	if err != nil {
+	// 		if err == ErrUserNotFound || err == ErrItemNotFound {
+	// 			return errorResponse(c, http.StatusNotFound, err)
+	// 		}
+	// 		if err == ErrInvalidItemType {
+	// 			return errorResponse(c, http.StatusBadRequest, err)
+	// 		}
+	// 		return errorResponse(c, http.StatusInternalServerError, err)
+	// 	}
+	// }
+
+	// 別スレッドをobtainPresentの数だけ立ち上げて並列処理
+	// エラーが発生した場合はerrChansにエラーを送信する
+	// エラーを受け取った場合は即座にロールバックしてエラーを返す
 	for i := range obtainPresent {
-		if obtainPresent[i].DeletedAt != nil {
-			return errorResponse(c, http.StatusInternalServerError, fmt.Errorf("received present"))
-		}
-
-		obtainPresent[i].UpdatedAt = requestAt
-		obtainPresent[i].DeletedAt = &requestAt
-		v := obtainPresent[i]
-		query = "UPDATE user_presents SET deleted_at=?, updated_at=? WHERE id=?"
-		_, err := tx.Exec(query, requestAt, requestAt, v.ID)
-		if err != nil {
-			return errorResponse(c, http.StatusInternalServerError, err)
-		}
-
-		_, _, _, err = h.obtainItem(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
-		if err != nil {
-			if err == ErrUserNotFound || err == ErrItemNotFound {
-				return errorResponse(c, http.StatusNotFound, err)
+		go func(i int) {
+			if obtainPresent[i].DeletedAt != nil {
+				errChans[i] <- errorResponse(c, http.StatusInternalServerError, fmt.Errorf("received present"))
+				return
 			}
-			if err == ErrInvalidItemType {
-				return errorResponse(c, http.StatusBadRequest, err)
+
+			obtainPresent[i].UpdatedAt = requestAt
+			obtainPresent[i].DeletedAt = &requestAt
+			v := obtainPresent[i]
+			query = "UPDATE user_presents SET deleted_at=?, updated_at=? WHERE id=?"
+			_, err := tx.Exec(query, requestAt, requestAt, v.ID)
+			if err != nil {
+				errChans[i] <- errorResponse(c, http.StatusInternalServerError, err)
+				return
 			}
-			return errorResponse(c, http.StatusInternalServerError, err)
+
+			_, _, _, err = h.obtainItem(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
+			if err != nil {
+				if err == ErrUserNotFound || err == ErrItemNotFound {
+					errChans[i] <- errorResponse(c, http.StatusNotFound, err)
+					return
+				}
+				if err == ErrInvalidItemType {
+					errChans[i] <- errorResponse(c, http.StatusBadRequest, err)
+					return
+				}
+				errChans[i] <- errorResponse(c, http.StatusInternalServerError, err)
+				return
+			}
+
+			errChans[i] <- nil
+		}(i)
+	}
+
+	// errChansからエラーを受け取る
+	for i := range errChans {
+		if err := <-errChans[i]; err != nil {
+			return err
 		}
 	}
 
