@@ -1,24 +1,24 @@
 matching_groups:
   - /admin/user/[0-9]{10}
-  - /user/[0-9]{10}/present/receive
-  - /user/[0-9]{10}/present/index/[0-9]+
-  - /user/[0-9]{10}/card/addexp/[0-9]+
-  - /user/[0-9]{10}/gacha/draw/[0-9]+/[0-9]+
-  - /user/[0-9]{10}/gacha/index
-  - /user/[0-9]{10}/reward
-  - /user/[0-9]{10}/card
-  - /user/[0-9]{10}/item
-  - /user/[0-9]{10}/home
-  - /user/[0-9]{4}/present/receive
-  - /user/[0-9]{4}/present/index/[0-9]+
-  - /user/[0-9]{4}/card/addexp/[0-9]+
-  - /user/[0-9]{4}/gacha/draw/[0-9]+/[0-9]+
-  - /user/[0-9]{4}/gacha/index
-  - /user/[0-9]{4}/reward
-  - /user/[0-9]{4}/card
-  - /user/[0-9]{4}/item
-  - /user/[0-9]{4}/home
-  
+  - /user/[0-9]{8,}/present/receive
+  - /user/[0-9]{8,}/present/index/[0-9]+
+  - /user/[0-9]{8,}/card/addexp/[0-9]+
+  - /user/[0-9]{8,}/gacha/draw/[0-9]+/[0-9]+
+  - /user/[0-9]{8,}/gacha/index
+  - /user/[0-9]{8,}/reward
+  - /user/[0-9]{8,}/card
+  - /user/[0-9]{8,}/item
+  - /user/[0-9]{8,}/home
+  - /user/[0-9]{,7}/present/receive
+  - /user/[0-9]{,7}/present/index/[0-9]+
+  - /user/[0-9]{,7}/card/addexp/[0-9]+
+  - /user/[0-9]{,7}/gacha/draw/[0-9]+/[0-9]+
+  - /user/[0-9]{,7}/gacha/index
+  - /user/[0-9]{,7}/reward
+  - /user/[0-9]{,7}/card
+  - /user/[0-9]{,7}/item
+  - /user/[0-9]{,7}/home
+
 sort: avg
 reverse: true
 metrics:
