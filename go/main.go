@@ -675,13 +675,18 @@ func (h *Handler) obtainItem2s(tx *sqlx.Tx, userId int64, items []*ObtainItemArg
 		return err
 	}
 
+	itemMastersMap := make(map[int64]*ItemMaster)
+	for _, master := range itemMasters {
+		itemMastersMap[master.ID] = master
+	}
+
 	cards := make([]*UserCard, 0)
 	for _, item := range items {
 		cID, err := h.generateID()
 		if err != nil {
 			return err
 		}
-		master := itemMasters[item.ItemID]
+		master := itemMastersMap[item.ItemID]
 		card := &UserCard{
 			ID:           cID,
 			UserID:       userId,
