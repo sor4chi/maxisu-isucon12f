@@ -405,7 +405,6 @@ func (h *Handler) obtainLoginBonus(tx *sqlx.Tx, userID int64, requestAt int64) (
 		}
 
 		obtainItemArgs = append(obtainItemArgs, &ObtainItemArgs{
-			UserID:       userID,
 			ItemID:       rewardItem.ItemID,
 			ItemType:     rewardItem.ItemType,
 			ObtainAmount: rewardItem.Amount,
@@ -428,7 +427,7 @@ func (h *Handler) obtainLoginBonus(tx *sqlx.Tx, userID int64, requestAt int64) (
 		sendLoginBonuses = append(sendLoginBonuses, userBonus)
 	}
 
-	err := h.obtainItems(tx, obtainItemArgs)
+	err := h.obtainItems(tx, userID, obtainItemArgs)
 	if err != nil {
 		return nil, err
 	}
@@ -525,7 +524,6 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 }
 
 type ObtainItemArgs struct {
-	UserID       int64
 	ItemID       int64
 	ItemType     int
 	ObtainAmount int64
@@ -533,32 +531,44 @@ type ObtainItemArgs struct {
 }
 
 // obtainItem アイテム付与処理
-func (h *Handler) obtainItems(tx *sqlx.Tx, items []*ObtainItemArgs) error {
+func (h *Handler) obtainItems(tx *sqlx.Tx, UserID int64, items []*ObtainItemArgs) error {
+	obtain1s := make([]*ObtainItemArgs, 0)
+	obtain2s := make([]*ObtainItemArgs, 0)
+	obtain3or4s := make([]*ObtainItemArgs, 0)
+
 	for _, item := range items {
-		userID := item.UserID
-		itemID := item.ItemID
 		itemType := item.ItemType
-		obtainAmount := item.ObtainAmount
-		requestAt := item.RequestAt
 
 		switch itemType {
 		case 1: // coin
-			if err := h.obtainItem1(tx, userID, itemID, itemType, obtainAmount, requestAt); err != nil {
-				return err
-			}
+			obtain1s = append(obtain1s, item)
 
 		case 2: // card(ハンマー)
-			if err := h.obtainItem2(tx, userID, itemID, itemType, obtainAmount, requestAt); err != nil {
-				return err
-			}
+			obtain2s = append(obtain2s, item)
 
 		case 3, 4: // 強化素材
-			if err := h.obtainItem3or4(tx, userID, itemID, itemType, obtainAmount, requestAt); err != nil {
-				return err
-			}
+			obtain3or4s = append(obtain3or4s, item)
 
 		default:
 			return ErrInvalidItemType
+		}
+	}
+
+	if len(obtain1s) > 0 {
+		if err := h.obtainItem1s(tx, UserID, obtain1s); err != nil {
+			return err
+		}
+	}
+
+	if len(obtain2s) > 0 {
+		if err := h.obtainItem2s(tx, UserID, obtain2s); err != nil {
+			return err
+		}
+	}
+
+	if len(obtain3or4s) > 0 {
+		if err := h.obtainItem3or4s(tx, UserID, obtain3or4s); err != nil {
+			return err
 		}
 	}
 
@@ -577,6 +587,29 @@ func (h *Handler) obtainItem1(tx *sqlx.Tx, userID, itemID int64, itemType int, o
 
 	query = "UPDATE users SET isu_coin=? WHERE id=?"
 	totalCoin := user.IsuCoin + obtainAmount
+	if _, err := tx.Exec(query, totalCoin, user.ID); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (h *Handler) obtainItem1s(tx *sqlx.Tx, userId int64, items []*ObtainItemArgs) error {
+	user := new(User)
+	query := "SELECT * FROM users WHERE id=?"
+	if err := tx.Get(user, query, userId); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrUserNotFound
+		}
+		return err
+	}
+
+	query = "UPDATE users SET isu_coin=? WHERE id=?"
+	totalCoin := user.IsuCoin
+	for _, item := range items {
+		totalCoin += item.ObtainAmount
+	}
+
 	if _, err := tx.Exec(query, totalCoin, user.ID); err != nil {
 		return err
 	}
@@ -610,6 +643,55 @@ func (h *Handler) obtainItem2(tx *sqlx.Tx, userID, itemID int64, itemType int, o
 	}
 	query = "INSERT INTO user_cards(id, user_id, card_id, amount_per_sec, level, total_exp, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
 	if _, err := tx.Exec(query, card.ID, card.UserID, card.CardID, card.AmountPerSec, card.Level, card.TotalExp, card.CreatedAt, card.UpdatedAt); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (h *Handler) obtainItem2s(tx *sqlx.Tx, userId int64, items []*ObtainItemArgs) error {
+	query := "SELECT * FROM item_masters WHERE id IN (?)"
+	itemIds := make([]int64, 0)
+	for _, item := range items {
+		itemIds = append(itemIds, item.ItemID)
+	}
+	query, args, err := sqlx.In(query, itemIds)
+	if err != nil {
+		return err
+	}
+	query = tx.Rebind(query)
+	itemMasters := make([]*ItemMaster, 0)
+	if err := tx.Select(&itemMasters, query, args...); err != nil {
+		return err
+	}
+
+	cards := make([]*UserCard, 0)
+	for _, item := range items {
+		cID, err := h.generateID()
+		if err != nil {
+			return err
+		}
+		master := itemMasters[item.ItemID]
+		card := &UserCard{
+			ID:           cID,
+			UserID:       userId,
+			CardID:       master.ID,
+			AmountPerSec: *master.AmountPerSec,
+			Level:        1,
+			TotalExp:     0,
+			CreatedAt:    item.RequestAt,
+			UpdatedAt:    item.RequestAt,
+		}
+		cards = append(cards, card)
+	}
+
+	// bulk insert
+	query = "INSERT INTO user_cards(id, user_id, card_id, amount_per_sec, level, total_exp, created_at, updated_at) VALUES "
+	for _, card := range cards {
+		query += fmt.Sprintf("(%d, %d, %d, %d, %d, %d, %d, %d),", card.ID, card.UserID, card.CardID, card.AmountPerSec, card.Level, card.TotalExp, card.CreatedAt, card.UpdatedAt)
+	}
+	query = strings.TrimRight(query, ",")
+	if _, err := tx.Exec(query); err != nil {
 		return err
 	}
 
@@ -661,6 +743,49 @@ func (h *Handler) obtainItem3or4(tx *sqlx.Tx, userID, itemID int64, itemType int
 		if _, err := tx.Exec(query, uitem.Amount, uitem.UpdatedAt, uitem.ID); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (h *Handler) obtainItem3or4s(tx *sqlx.Tx, userId int64, items []*ObtainItemArgs) error {
+	query := "SELECT * FROM item_masters WHERE id IN (?)"
+	itemIds := make([]int64, 0)
+	for _, item := range items {
+		itemIds = append(itemIds, item.ItemID)
+	}
+	query, args, err := sqlx.In(query, itemIds)
+	if err != nil {
+		return err
+	}
+	query = tx.Rebind(query)
+	itemMasters := make([]*ItemMaster, 0)
+	if err := tx.Select(&itemMasters, query, args...); err != nil {
+		return err
+	}
+
+	userItems := make([]*UserItem, 0)
+	for _, item := range items {
+		master := itemMasters[item.ItemID]
+		uitem := &UserItem{
+			UserID:    userId,
+			ItemType:  master.ItemType,
+			ItemID:    master.ID,
+			Amount:    int(item.ObtainAmount),
+			CreatedAt: item.RequestAt,
+			UpdatedAt: item.RequestAt,
+		}
+		userItems = append(userItems, uitem)
+	}
+
+	// bulk insert
+	query = "INSERT INTO user_items(user_id, item_id, item_type, amount, created_at, updated_at) VALUES "
+	for _, uitem := range userItems {
+		query += fmt.Sprintf("(%d, %d, %d, %d, %d, %d),", uitem.UserID, uitem.ItemID, uitem.ItemType, uitem.Amount, uitem.CreatedAt, uitem.UpdatedAt)
+	}
+	query = strings.TrimRight(query, ",")
+	if _, err := tx.Exec(query); err != nil {
+		return err
 	}
 
 	return nil
@@ -1356,7 +1481,6 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		}
 
 		obtainItemArgs = append(obtainItemArgs, &ObtainItemArgs{
-			UserID:       v.UserID,
 			ItemID:       v.ItemID,
 			ItemType:     v.ItemType,
 			ObtainAmount: int64(v.Amount),
@@ -1365,7 +1489,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 
 	}
 
-	err = h.obtainItems(tx, obtainItemArgs)
+	err = h.obtainItems(tx, userID, obtainItemArgs)
 	if err != nil {
 		if err == ErrUserNotFound || err == ErrItemNotFound {
 			return errorResponse(c, http.StatusNotFound, err)
