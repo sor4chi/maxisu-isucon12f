@@ -1279,6 +1279,16 @@ func (h *Handler) receivePresent(c echo.Context) error {
 	defer tx.Rollback() //nolint:errcheck
 
 	// 配布処理
+	// deleteはfor文の中でやると遅いので、一気にやる
+	query = "DELETE FROM user_presents_remaining WHERE id IN (?)"
+	query, params, err = sqlx.In(query, req.PresentIDs)
+	if err != nil {
+		return errorResponse(c, http.StatusBadRequest, err)
+	}
+	if _, err = tx.Exec(query, params...); err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+
 	for i := range obtainPresent {
 		if obtainPresent[i].DeletedAt != nil {
 			return errorResponse(c, http.StatusInternalServerError, fmt.Errorf("received present"))
@@ -1287,11 +1297,6 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		obtainPresent[i].UpdatedAt = requestAt
 		obtainPresent[i].DeletedAt = &requestAt
 		v := obtainPresent[i]
-		query = "DELETE FROM user_presents_remaining WHERE id=?"
-		_, err := tx.Exec(query, v.ID)
-		if err != nil {
-			return errorResponse(c, http.StatusInternalServerError, err)
-		}
 
 		_, _, _, err = h.obtainItem(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
 		if err != nil {
