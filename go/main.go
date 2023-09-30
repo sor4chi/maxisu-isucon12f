@@ -619,16 +619,24 @@ func (h *Handler) obtainItem(tx *sqlx.Tx, userID, itemID int64, itemType int, ob
 // initialize 初期化処理
 // POST /initialize
 func initialize(c echo.Context) error {
-	dbx, err := connectDB(true)
-	if err != nil {
-		return errorResponse(c, http.StatusInternalServerError, err)
-	}
-	defer dbx.Close()
+	for i := 4; i <= 7; i++ {
+		go func(i int) {
+			dbIp := fmt.Sprintf("192.168.0.%d", i)
+			dbHostConfig := fmt.Sprintf("ISUCON_DB_HOST=%s", dbIp)
 
-	out, err := exec.Command("/bin/sh", "-c", SQLDirectory+"init.sh").CombinedOutput()
-	if err != nil {
-		c.Logger().Errorf("Failed to initialize %s: %v", string(out), err)
-		return errorResponse(c, http.StatusInternalServerError, err)
+			dbx, err := connectDB(true, dbIp)
+			if err != nil {
+				c.Logger().Errorf("failed to connect to db: %v", err)
+				return
+			}
+			defer dbx.Close()
+
+			out, err := exec.Command("/bin/sh", "-c", dbHostConfig, SQLDirectory+"init.sh").CombinedOutput()
+			if err != nil {
+				c.Logger().Errorf("Failed to initialize %s: %v", string(out), err)
+				return
+			}
+		}(i)
 	}
 
 	return successResponse(c, &InitializeResponse{
