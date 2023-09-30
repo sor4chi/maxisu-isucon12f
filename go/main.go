@@ -658,9 +658,6 @@ func initialize(c echo.Context) error {
 		return err
 	}
 
-	// 80s 待つ
-	time.Sleep(80 * time.Second)
-
 	return successResponse(c, &InitializeResponse{
 		Language: "go",
 	})
