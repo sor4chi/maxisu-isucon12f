@@ -377,6 +377,7 @@ func (h *Handler) obtainLoginBonus(usersTx *sqlx.Tx, presentTx *sqlx.Tx, gachasT
 	}
 
 	sendLoginBonuses := make([]*UserLoginBonus, 0)
+	obtainItemArgs := make([]*ObtainItemArgs, 0)
 
 	for _, bonus := range loginBonuses {
 		initBonus := false
@@ -427,25 +428,32 @@ func (h *Handler) obtainLoginBonus(usersTx *sqlx.Tx, presentTx *sqlx.Tx, gachasT
 			return nil, err
 		}
 
-		_, _, _, err := h.obtainItem(usersTx, gachasTx, userID, rewardItem.ItemID, rewardItem.ItemType, rewardItem.Amount, requestAt)
-		if err != nil {
-			return nil, err
-		}
+		obtainItemArgs = append(obtainItemArgs, &ObtainItemArgs{
+			ItemID:       rewardItem.ItemID,
+			ItemType:     rewardItem.ItemType,
+			ObtainAmount: rewardItem.Amount,
+			RequestAt:    requestAt,
+		})
 
 		// 進捗の保存
 		if initBonus {
 			query = "INSERT INTO user_login_bonuses(id, user_id, login_bonus_id, last_reward_sequence, loop_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
-			if _, err = presentTx.Exec(query, userBonus.ID, userBonus.UserID, userBonus.LoginBonusID, userBonus.LastRewardSequence, userBonus.LoopCount, userBonus.CreatedAt, userBonus.UpdatedAt); err != nil {
+			if _, err := presentTx.Exec(query, userBonus.ID, userBonus.UserID, userBonus.LoginBonusID, userBonus.LastRewardSequence, userBonus.LoopCount, userBonus.CreatedAt, userBonus.UpdatedAt); err != nil {
 				return nil, err
 			}
 		} else {
 			query = "UPDATE user_login_bonuses SET last_reward_sequence=?, loop_count=?, updated_at=? WHERE id=?"
-			if _, err = presentTx.Exec(query, userBonus.LastRewardSequence, userBonus.LoopCount, userBonus.UpdatedAt, userBonus.ID); err != nil {
+			if _, err := presentTx.Exec(query, userBonus.LastRewardSequence, userBonus.LoopCount, userBonus.UpdatedAt, userBonus.ID); err != nil {
 				return nil, err
 			}
 		}
 
 		sendLoginBonuses = append(sendLoginBonuses, userBonus)
+	}
+
+	err := h.obtainItems(usersTx, gachasTx, userID, obtainItemArgs)
+	if err != nil {
+		return nil, err
 	}
 
 	return sendLoginBonuses, nil
@@ -539,114 +547,292 @@ func (h *Handler) obtainPresent(presentsTx *sqlx.Tx, userID int64, requestAt int
 	return obtainPresents, nil
 }
 
+type ObtainItemArgs struct {
+	ItemID       int64
+	ItemType     int
+	ObtainAmount int64
+	RequestAt    int64
+}
+
 // obtainItem アイテム付与処理
-func (h *Handler) obtainItem(usersTx *sqlx.Tx, gachasTx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64) ([]int64, []*UserCard, []*UserItem, error) {
-	obtainCoins := make([]int64, 0)
-	obtainCards := make([]*UserCard, 0)
-	obtainItems := make([]*UserItem, 0)
+func (h *Handler) obtainItems(usersTx *sqlx.Tx, gachasTx *sqlx.Tx, UserID int64, items []*ObtainItemArgs) error {
+	obtain1s := make([]*ObtainItemArgs, 0)
+	obtain2s := make([]*ObtainItemArgs, 0)
+	obtain3or4s := make([]*ObtainItemArgs, 0)
 
-	switch itemType {
-	case 1: // coin
-		user := new(User)
-		query := "SELECT * FROM users WHERE id=?"
-		if err := usersTx.Get(user, query, userID); err != nil {
-			if err == sql.ErrNoRows {
-				return nil, nil, nil, ErrUserNotFound
-			}
-			return nil, nil, nil, err
+	for _, item := range items {
+		itemType := item.ItemType
+
+		switch itemType {
+		case 1: // coin
+			obtain1s = append(obtain1s, item)
+
+		case 2: // card(ハンマー)
+			obtain2s = append(obtain2s, item)
+
+		case 3, 4: // 強化素材
+			obtain3or4s = append(obtain3or4s, item)
+
+		default:
+			return ErrInvalidItemType
 		}
-
-		query = "UPDATE users SET isu_coin=? WHERE id=?"
-		totalCoin := user.IsuCoin + obtainAmount
-		if _, err := usersTx.Exec(query, totalCoin, user.ID); err != nil {
-			return nil, nil, nil, err
-		}
-		obtainCoins = append(obtainCoins, obtainAmount)
-
-	case 2: // card(ハンマー)
-		query := "SELECT * FROM item_masters WHERE id=? AND item_type=?"
-		item := new(ItemMaster)
-		if err := gachasTx.Get(item, query, itemID, itemType); err != nil {
-			if err == sql.ErrNoRows {
-				return nil, nil, nil, ErrItemNotFound
-			}
-			return nil, nil, nil, err
-		}
-
-		cID, err := h.generateID()
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		card := &UserCard{
-			ID:           cID,
-			UserID:       userID,
-			CardID:       item.ID,
-			AmountPerSec: *item.AmountPerSec,
-			Level:        1,
-			TotalExp:     0,
-			CreatedAt:    requestAt,
-			UpdatedAt:    requestAt,
-		}
-		query = "INSERT INTO user_cards(id, user_id, card_id, amount_per_sec, level, total_exp, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-		if _, err := gachasTx.Exec(query, card.ID, card.UserID, card.CardID, card.AmountPerSec, card.Level, card.TotalExp, card.CreatedAt, card.UpdatedAt); err != nil {
-			return nil, nil, nil, err
-		}
-		obtainCards = append(obtainCards, card)
-
-	case 3, 4: // 強化素材
-		query := "SELECT * FROM item_masters WHERE id=? AND item_type=?"
-		item := new(ItemMaster)
-		if err := gachasTx.Get(item, query, itemID, itemType); err != nil {
-			if err == sql.ErrNoRows {
-				return nil, nil, nil, ErrItemNotFound
-			}
-			return nil, nil, nil, err
-		}
-
-		query = "SELECT * FROM user_items WHERE user_id=? AND item_id=?"
-		uitem := new(UserItem)
-		if err := gachasTx.Get(uitem, query, userID, item.ID); err != nil {
-			if err != sql.ErrNoRows {
-				return nil, nil, nil, err
-			}
-			uitem = nil
-		}
-
-		if uitem == nil {
-			uitemID, err := h.generateID()
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			uitem = &UserItem{
-				ID:        uitemID,
-				UserID:    userID,
-				ItemType:  item.ItemType,
-				ItemID:    item.ID,
-				Amount:    int(obtainAmount),
-				CreatedAt: requestAt,
-				UpdatedAt: requestAt,
-			}
-			query = "INSERT INTO user_items(id, user_id, item_id, item_type, amount, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
-			if _, err := gachasTx.Exec(query, uitem.ID, userID, uitem.ItemID, uitem.ItemType, uitem.Amount, requestAt, requestAt); err != nil {
-				return nil, nil, nil, err
-			}
-
-		} else {
-			uitem.Amount += int(obtainAmount)
-			uitem.UpdatedAt = requestAt
-			query = "UPDATE user_items SET amount=?, updated_at=? WHERE id=?"
-			if _, err := gachasTx.Exec(query, uitem.Amount, uitem.UpdatedAt, uitem.ID); err != nil {
-				return nil, nil, nil, err
-			}
-		}
-
-		obtainItems = append(obtainItems, uitem)
-
-	default:
-		return nil, nil, nil, ErrInvalidItemType
 	}
 
-	return obtainCoins, obtainCards, obtainItems, nil
+	if len(obtain1s) > 0 {
+		if err := h.obtainItem1s(usersTx, UserID, obtain1s); err != nil {
+			return err
+		}
+	}
+
+	if len(obtain2s) > 0 {
+		if err := h.obtainItem2s(gachasTx, UserID, obtain2s); err != nil {
+			return err
+		}
+	}
+
+	// if len(obtain3or4s) > 0 {
+	// 	if err := h.obtainItem3or4s(tx, UserID, obtain3or4s); err != nil {
+	// 		return err
+	// 	}
+	// }
+
+	for _, item := range items {
+		itemID := item.ItemID
+		itemType := item.ItemType
+		obtainAmount := item.ObtainAmount
+		requestAt := item.RequestAt
+		if err := h.obtainItem3or4(gachasTx, UserID, itemID, itemType, obtainAmount, requestAt); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (h *Handler) obtainItem1(usersTx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64) error {
+	user := new(User)
+	query := "SELECT * FROM users WHERE id=?"
+	if err := usersTx.Get(user, query, userID); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrUserNotFound
+		}
+		return err
+	}
+
+	query = "UPDATE users SET isu_coin=? WHERE id=?"
+	totalCoin := user.IsuCoin + obtainAmount
+	if _, err := usersTx.Exec(query, totalCoin, user.ID); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (h *Handler) obtainItem1s(usersTx *sqlx.Tx, userId int64, items []*ObtainItemArgs) error {
+	user := new(User)
+	query := "SELECT * FROM users WHERE id=?"
+	if err := usersTx.Get(user, query, userId); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrUserNotFound
+		}
+		return err
+	}
+
+	query = "UPDATE users SET isu_coin=? WHERE id=?"
+	totalCoin := user.IsuCoin
+	for _, item := range items {
+		totalCoin += item.ObtainAmount
+	}
+
+	if _, err := usersTx.Exec(query, totalCoin, user.ID); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (h *Handler) obtainItem2(gachasTx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64) error {
+	query := "SELECT * FROM item_masters WHERE id=? AND item_type=?"
+	item := new(ItemMaster)
+	if err := gachasTx.Get(item, query, itemID, itemType); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrItemNotFound
+		}
+		return err
+	}
+
+	cID, err := h.generateID()
+	if err != nil {
+		return err
+	}
+	card := &UserCard{
+		ID:           cID,
+		UserID:       userID,
+		CardID:       item.ID,
+		AmountPerSec: *item.AmountPerSec,
+		Level:        1,
+		TotalExp:     0,
+		CreatedAt:    requestAt,
+		UpdatedAt:    requestAt,
+	}
+	query = "INSERT INTO user_cards(id, user_id, card_id, amount_per_sec, level, total_exp, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+	if _, err := gachasTx.Exec(query, card.ID, card.UserID, card.CardID, card.AmountPerSec, card.Level, card.TotalExp, card.CreatedAt, card.UpdatedAt); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (h *Handler) obtainItem2s(tx *sqlx.Tx, userId int64, items []*ObtainItemArgs) error {
+	query := "SELECT * FROM item_masters WHERE id IN (?)"
+	itemIds := make([]int64, 0)
+	for _, item := range items {
+		itemIds = append(itemIds, item.ItemID)
+	}
+	query, args, err := sqlx.In(query, itemIds)
+	if err != nil {
+		return err
+	}
+	query = tx.Rebind(query)
+	itemMasters := make([]*ItemMaster, 0)
+	if err := tx.Select(&itemMasters, query, args...); err != nil {
+		return err
+	}
+
+	itemMastersMap := make(map[int64]*ItemMaster)
+	for _, master := range itemMasters {
+		itemMastersMap[master.ID] = master
+	}
+
+	cards := make([]*UserCard, 0)
+	for _, item := range items {
+		cID, err := h.generateID()
+		if err != nil {
+			return err
+		}
+		master := itemMastersMap[item.ItemID]
+		card := &UserCard{
+			ID:           cID,
+			UserID:       userId,
+			CardID:       master.ID,
+			AmountPerSec: *master.AmountPerSec,
+			Level:        1,
+			TotalExp:     0,
+			CreatedAt:    item.RequestAt,
+			UpdatedAt:    item.RequestAt,
+		}
+		cards = append(cards, card)
+	}
+
+	// bulk insert
+	query = "INSERT INTO user_cards(id, user_id, card_id, amount_per_sec, level, total_exp, created_at, updated_at) VALUES "
+	for _, card := range cards {
+		query += fmt.Sprintf("(%d, %d, %d, %d, %d, %d, %d, %d),", card.ID, card.UserID, card.CardID, card.AmountPerSec, card.Level, card.TotalExp, card.CreatedAt, card.UpdatedAt)
+	}
+	query = strings.TrimRight(query, ",")
+	if _, err := tx.Exec(query); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (h *Handler) obtainItem3or4(gachasTx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64) error {
+	query := "SELECT * FROM item_masters WHERE id=? AND item_type=?"
+	item := new(ItemMaster)
+	if err := gachasTx.Get(item, query, itemID, itemType); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrItemNotFound
+		}
+		return err
+	}
+
+	query = "SELECT * FROM user_items WHERE user_id=? AND item_id=?"
+	uitem := new(UserItem)
+	if err := gachasTx.Get(uitem, query, userID, item.ID); err != nil {
+		if err != sql.ErrNoRows {
+			return err
+		}
+		uitem = nil
+	}
+
+	if uitem == nil {
+		uitemID, err := h.generateID()
+		if err != nil {
+			return err
+		}
+		uitem = &UserItem{
+			ID:        uitemID,
+			UserID:    userID,
+			ItemType:  item.ItemType,
+			ItemID:    item.ID,
+			Amount:    int(obtainAmount),
+			CreatedAt: requestAt,
+			UpdatedAt: requestAt,
+		}
+		query = "INSERT INTO user_items(id, user_id, item_id, item_type, amount, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+		if _, err := gachasTx.Exec(query, uitem.ID, userID, uitem.ItemID, uitem.ItemType, uitem.Amount, requestAt, requestAt); err != nil {
+			return err
+		}
+
+	} else {
+		uitem.Amount += int(obtainAmount)
+		uitem.UpdatedAt = requestAt
+		query = "UPDATE user_items SET amount=?, updated_at=? WHERE id=?"
+		if _, err := gachasTx.Exec(query, uitem.Amount, uitem.UpdatedAt, uitem.ID); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (h *Handler) obtainItem3or4s(tx *sqlx.Tx, userId int64, items []*ObtainItemArgs) error {
+	query := "SELECT * FROM item_masters WHERE id IN (?)"
+	itemIds := make([]int64, 0)
+	for _, item := range items {
+		itemIds = append(itemIds, item.ItemID)
+	}
+	query, args, err := sqlx.In(query, itemIds)
+	if err != nil {
+		return err
+	}
+	query = tx.Rebind(query)
+	itemMasters := make([]*ItemMaster, 0)
+	if err := tx.Select(&itemMasters, query, args...); err != nil {
+		return err
+	}
+
+	itemMastersMap := make(map[int64]*ItemMaster)
+	for _, master := range itemMasters {
+		itemMastersMap[master.ID] = master
+	}
+
+	userItems := make([]*UserItem, 0)
+	for _, item := range items {
+		master := itemMastersMap[item.ItemID]
+		uitem := &UserItem{
+			UserID:    userId,
+			ItemType:  master.ItemType,
+			ItemID:    master.ID,
+			Amount:    int(item.ObtainAmount),
+			CreatedAt: item.RequestAt,
+			UpdatedAt: item.RequestAt,
+		}
+		userItems = append(userItems, uitem)
+	}
+
+	// bulk insert
+	query = "INSERT INTO user_items(user_id, item_id, item_type, amount, created_at, updated_at) VALUES "
+	for _, uitem := range userItems {
+		query += fmt.Sprintf("(%d, %d, %d, %d, %d, %d),", uitem.UserID, uitem.ItemID, uitem.ItemType, uitem.Amount, uitem.CreatedAt, uitem.UpdatedAt)
+	}
+	query = strings.TrimRight(query, ",")
+	if _, err := tx.Exec(query); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // initialize 初期化処理
@@ -1382,6 +1568,8 @@ func (h *Handler) receivePresent(c echo.Context) error {
 	}
 	defer gachasTx.Rollback() //nolint:errcheck
 
+	obtainItemArgs := make([]*ObtainItemArgs, 0)
+
 	// 配布処理
 	for i := range obtainPresent {
 		if obtainPresent[i].DeletedAt != nil {
@@ -1397,16 +1585,24 @@ func (h *Handler) receivePresent(c echo.Context) error {
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
 
-		_, _, _, err = h.obtainItem(usersTx, gachasTx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
-		if err != nil {
-			if err == ErrUserNotFound || err == ErrItemNotFound {
-				return errorResponse(c, http.StatusNotFound, err)
-			}
-			if err == ErrInvalidItemType {
-				return errorResponse(c, http.StatusBadRequest, err)
-			}
-			return errorResponse(c, http.StatusInternalServerError, err)
+		obtainItemArgs = append(obtainItemArgs, &ObtainItemArgs{
+			ItemID:       v.ItemID,
+			ItemType:     v.ItemType,
+			ObtainAmount: int64(v.Amount),
+			RequestAt:    requestAt,
+		})
+
+	}
+
+	err = h.obtainItems(usersTx, gachasTx, userID, obtainItemArgs)
+	if err != nil {
+		if err == ErrUserNotFound || err == ErrItemNotFound {
+			return errorResponse(c, http.StatusNotFound, err)
 		}
+		if err == ErrInvalidItemType {
+			return errorResponse(c, http.StatusBadRequest, err)
+		}
+		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
 	err = gachasTx.Commit()
