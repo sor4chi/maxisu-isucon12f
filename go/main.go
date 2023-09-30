@@ -1287,7 +1287,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		obtainPresent[i].UpdatedAt = requestAt
 		obtainPresent[i].DeletedAt = &requestAt
 		v := obtainPresent[i]
-		query = "DELETE user_presents_remaining WHERE id=?"
+		query = "DELETE FROM user_presents_remaining WHERE id=?"
 		_, err := tx.Exec(query, v.ID)
 		if err != nil {
 			return errorResponse(c, http.StatusInternalServerError, err)
