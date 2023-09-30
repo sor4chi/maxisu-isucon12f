@@ -1854,7 +1854,7 @@ func noContentResponse(c echo.Context, status int) error {
 
 var (
 	mutex sync.Mutex
-	id    int64 = 1
+	id    int64 = 1.1 * 100000000000
 )
 
 // generateID ユニークなIDを生成する
