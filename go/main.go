@@ -353,6 +353,7 @@ func (h *Handler) obtainLoginBonus(tx *sqlx.Tx, userID int64, requestAt int64) (
 	}
 
 	sendLoginBonuses := make([]*UserLoginBonus, 0)
+	obtainItemArgs := make([]*ObtainItemArgs, 0)
 
 	for _, bonus := range loginBonuses {
 		initBonus := false
@@ -403,25 +404,33 @@ func (h *Handler) obtainLoginBonus(tx *sqlx.Tx, userID int64, requestAt int64) (
 			return nil, err
 		}
 
-		err := h.obtainItem(tx, userID, rewardItem.ItemID, rewardItem.ItemType, rewardItem.Amount, requestAt)
-		if err != nil {
-			return nil, err
-		}
+		obtainItemArgs = append(obtainItemArgs, &ObtainItemArgs{
+			UserID:       userID,
+			ItemID:       rewardItem.ItemID,
+			ItemType:     rewardItem.ItemType,
+			ObtainAmount: rewardItem.Amount,
+			RequestAt:    requestAt,
+		})
 
 		// 進捗の保存
 		if initBonus {
 			query = "INSERT INTO user_login_bonuses(id, user_id, login_bonus_id, last_reward_sequence, loop_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
-			if _, err = tx.Exec(query, userBonus.ID, userBonus.UserID, userBonus.LoginBonusID, userBonus.LastRewardSequence, userBonus.LoopCount, userBonus.CreatedAt, userBonus.UpdatedAt); err != nil {
+			if _, err := tx.Exec(query, userBonus.ID, userBonus.UserID, userBonus.LoginBonusID, userBonus.LastRewardSequence, userBonus.LoopCount, userBonus.CreatedAt, userBonus.UpdatedAt); err != nil {
 				return nil, err
 			}
 		} else {
 			query = "UPDATE user_login_bonuses SET last_reward_sequence=?, loop_count=?, updated_at=? WHERE id=?"
-			if _, err = tx.Exec(query, userBonus.LastRewardSequence, userBonus.LoopCount, userBonus.UpdatedAt, userBonus.ID); err != nil {
+			if _, err := tx.Exec(query, userBonus.LastRewardSequence, userBonus.LoopCount, userBonus.UpdatedAt, userBonus.ID); err != nil {
 				return nil, err
 			}
 		}
 
 		sendLoginBonuses = append(sendLoginBonuses, userBonus)
+	}
+
+	err := h.obtainItems(tx, obtainItemArgs)
+	if err != nil {
+		return nil, err
 	}
 
 	return sendLoginBonuses, nil
@@ -515,26 +524,42 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 	return obtainPresents, nil
 }
 
+type ObtainItemArgs struct {
+	UserID       int64
+	ItemID       int64
+	ItemType     int
+	ObtainAmount int64
+	RequestAt    int64
+}
+
 // obtainItem アイテム付与処理
-func (h *Handler) obtainItem(tx *sqlx.Tx, userID, itemID int64, itemType int, obtainAmount int64, requestAt int64) error {
-	switch itemType {
-	case 1: // coin
-		if err := h.obtainItem1(tx, userID, itemID, itemType, obtainAmount, requestAt); err != nil {
-			return err
-		}
+func (h *Handler) obtainItems(tx *sqlx.Tx, items []*ObtainItemArgs) error {
+	for _, item := range items {
+		userID := item.UserID
+		itemID := item.ItemID
+		itemType := item.ItemType
+		obtainAmount := item.ObtainAmount
+		requestAt := item.RequestAt
 
-	case 2: // card(ハンマー)
-		if err := h.obtainItem2(tx, userID, itemID, itemType, obtainAmount, requestAt); err != nil {
-			return err
-		}
+		switch itemType {
+		case 1: // coin
+			if err := h.obtainItem1(tx, userID, itemID, itemType, obtainAmount, requestAt); err != nil {
+				return err
+			}
 
-	case 3, 4: // 強化素材
-		if err := h.obtainItem3or4(tx, userID, itemID, itemType, obtainAmount, requestAt); err != nil {
-			return err
-		}
+		case 2: // card(ハンマー)
+			if err := h.obtainItem2(tx, userID, itemID, itemType, obtainAmount, requestAt); err != nil {
+				return err
+			}
 
-	default:
-		return ErrInvalidItemType
+		case 3, 4: // 強化素材
+			if err := h.obtainItem3or4(tx, userID, itemID, itemType, obtainAmount, requestAt); err != nil {
+				return err
+			}
+
+		default:
+			return ErrInvalidItemType
+		}
 	}
 
 	return nil
@@ -1313,6 +1338,8 @@ func (h *Handler) receivePresent(c echo.Context) error {
 	}
 	defer tx.Rollback() //nolint:errcheck
 
+	obtainItemArgs := make([]*ObtainItemArgs, 0)
+
 	// 配布処理
 	for i := range obtainPresent {
 		if obtainPresent[i].DeletedAt != nil {
@@ -1328,16 +1355,25 @@ func (h *Handler) receivePresent(c echo.Context) error {
 			return errorResponse(c, http.StatusInternalServerError, err)
 		}
 
-		err = h.obtainItem(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
-		if err != nil {
-			if err == ErrUserNotFound || err == ErrItemNotFound {
-				return errorResponse(c, http.StatusNotFound, err)
-			}
-			if err == ErrInvalidItemType {
-				return errorResponse(c, http.StatusBadRequest, err)
-			}
-			return errorResponse(c, http.StatusInternalServerError, err)
+		obtainItemArgs = append(obtainItemArgs, &ObtainItemArgs{
+			UserID:       v.UserID,
+			ItemID:       v.ItemID,
+			ItemType:     v.ItemType,
+			ObtainAmount: int64(v.Amount),
+			RequestAt:    requestAt,
+		})
+
+	}
+
+	err = h.obtainItems(tx, obtainItemArgs)
+	if err != nil {
+		if err == ErrUserNotFound || err == ErrItemNotFound {
+			return errorResponse(c, http.StatusNotFound, err)
 		}
+		if err == ErrInvalidItemType {
+			return errorResponse(c, http.StatusBadRequest, err)
+		}
+		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
 	err = tx.Commit()
