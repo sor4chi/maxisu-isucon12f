@@ -21,6 +21,8 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/pkg/errors"
+
+	"github.com/pkg/profile"
 )
 
 var (
@@ -52,6 +54,7 @@ type Handler struct {
 }
 
 func main() {
+	profile := profile.Start(profile.ProfilePath("/home/isucon/webapp"))
 	rand.Seed(time.Now().UnixNano())
 	time.Local = time.FixedZone("Local", 9*60*60)
 
@@ -80,6 +83,10 @@ func main() {
 	// utility
 	e.POST("/initialize", initialize)
 	e.GET("/health", h.health)
+	e.GET("/stop", func(c echo.Context) error {
+		profile.Stop()
+		return nil
+	})
 
 	// feature
 	API := e.Group("", h.apiMiddleware)
