@@ -1,7 +1,4 @@
-all: rotate-all app-deploy
-
-.PHONY: rotate-all
-rotate-all: rotate-access-log rotate-slow-log
+all: app-deploy
 
 .PHONY: rotate-access-log
 rotate-access-log:
@@ -24,7 +21,7 @@ pt:
 	sudo pt-query-digest /var/log/mysql/mysql-slow.log
 
 .PHONY: conf-deploy-s1
-conf-deploy-s1: nginx-conf-deploy-s1 mysql-conf-deploy-s1
+conf-deploy-s1: nginx-conf-deploy-s1
 
 .PHONY: nginx-conf-deploy-s1
 nginx-conf-deploy-s1:
@@ -32,12 +29,6 @@ nginx-conf-deploy-s1:
 	sudo cp -r s1/etc/nginx/* /etc/nginx
 	sudo nginx -t
 	sudo systemctl restart nginx
-
-.PHONY: mysql-conf-deploy-s1
-mysql-conf-deploy-s1:
-	echo "mysql conf deploy"
-	sudo cp -r s1/etc/mysql/* /etc/mysql
-	sudo systemctl restart mysql
 
 .PHONY: conf-deploy-s2
 conf-deploy-s2: nginx-conf-deploy-s2 mysql-conf-deploy-s2
