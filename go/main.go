@@ -48,7 +48,8 @@ const (
 )
 
 type Handler struct {
-	DB *sqlx.DB
+	DB      *sqlx.DB
+	adminDB *sqlx.DB
 }
 
 func main() {
@@ -64,15 +65,21 @@ func main() {
 		AllowHeaders: []string{"Content-Type", "x-master-version", "x-session"},
 	}))
 
-	dbx, err := connectDB(false)
+	dbx, err := connectDB(false, "192.168.0.4")
 	if err != nil {
 		e.Logger.Fatalf("failed to connect to db: %v", err)
 	}
 	defer dbx.Close()
+	adminDbx, err := connectDB(false, "192.168.0.7")
+	if err != nil {
+		e.Logger.Fatalf("failed to connect to db: %v", err)
+	}
+	defer adminDbx.Close()
 
 	e.Server.Addr = fmt.Sprintf(":%v", "8080")
 	h := &Handler{
-		DB: dbx,
+		DB:      dbx,
+		adminDB: adminDbx,
 	}
 
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{}))
@@ -111,12 +118,12 @@ func main() {
 }
 
 // connectDB DBに接続する
-func connectDB(batch bool) (*sqlx.DB, error) {
+func connectDB(batch bool, hostIp string) (*sqlx.DB, error) {
 	dsn := fmt.Sprintf(
 		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=%s&multiStatements=%t&interpolateParams=true",
 		getEnv("ISUCON_DB_USER", "isucon"),
 		getEnv("ISUCON_DB_PASSWORD", "isucon"),
-		getEnv("ISUCON_DB_HOST", "192.168.0.4"),
+		hostIp,
 		getEnv("ISUCON_DB_PORT", "3306"),
 		getEnv("ISUCON_DB_NAME", "isucon"),
 		"Asia%2FTokyo",
