@@ -1278,30 +1278,54 @@ func (h *Handler) receivePresent(c echo.Context) error {
 	}
 	defer tx.Rollback() //nolint:errcheck
 
+	// ウェイトグループの作成
+	var wg sync.WaitGroup
+	// エラーチャネルの作成
+	errChan := make(chan error, len(obtainPresent))
+
 	// 配布処理
 	for i := range obtainPresent {
-		if obtainPresent[i].DeletedAt != nil {
-			return errorResponse(c, http.StatusInternalServerError, fmt.Errorf("received present"))
-		}
+		wg.Add(1) // ウェイトグループに処理を追加
 
-		obtainPresent[i].UpdatedAt = requestAt
-		obtainPresent[i].DeletedAt = &requestAt
-		v := obtainPresent[i]
-		query = "UPDATE user_presents SET deleted_at=?, updated_at=? WHERE id=?"
-		_, err := tx.Exec(query, requestAt, requestAt, v.ID)
-		if err != nil {
-			return errorResponse(c, http.StatusInternalServerError, err)
-		}
+		go func(i int) {
+			defer wg.Done() // ウェイトグループから処理を削除
 
-		_, _, _, err = h.obtainItem(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
-		if err != nil {
-			if err == ErrUserNotFound || err == ErrItemNotFound {
-				return errorResponse(c, http.StatusNotFound, err)
+			if obtainPresent[i].DeletedAt != nil {
+				errChan <- fmt.Errorf("received present")
+				return
 			}
-			if err == ErrInvalidItemType {
-				return errorResponse(c, http.StatusBadRequest, err)
+
+			obtainPresent[i].UpdatedAt = requestAt
+			obtainPresent[i].DeletedAt = &requestAt
+			v := obtainPresent[i]
+			query := "UPDATE user_presents SET deleted_at=?, updated_at=? WHERE id=?"
+			_, err := tx.Exec(query, requestAt, requestAt, v.ID)
+			if err != nil {
+				errChan <- err
+				return
 			}
-			return errorResponse(c, http.StatusInternalServerError, err)
+
+			_, _, _, err = h.obtainItem(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
+			if err != nil {
+				errChan <- err
+				return
+			}
+		}(i)
+	}
+
+	// 全ての並列処理が完了するまで待機
+	wg.Wait()
+	// エラーチャネルを閉じる
+	close(errChan)
+
+	// エラーチャネルからエラーを受け取る
+	for err := range errChan {
+		if err == ErrUserNotFound || err == ErrItemNotFound {
+			errorResponse(c, http.StatusNotFound, err)
+		} else if err == ErrInvalidItemType {
+			errorResponse(c, http.StatusBadRequest, err)
+		} else {
+			errorResponse(c, http.StatusInternalServerError, err)
 		}
 	}
 
