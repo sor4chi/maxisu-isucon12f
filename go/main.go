@@ -566,8 +566,18 @@ func (h *Handler) obtainItems(tx *sqlx.Tx, UserID int64, items []*ObtainItemArgs
 		}
 	}
 
-	if len(obtain3or4s) > 0 {
-		if err := h.obtainItem3or4s(tx, UserID, obtain3or4s); err != nil {
+	// if len(obtain3or4s) > 0 {
+	// 	if err := h.obtainItem3or4s(tx, UserID, obtain3or4s); err != nil {
+	// 		return err
+	// 	}
+	// }
+
+	for _, item := range items {
+		itemID := item.ItemID
+		itemType := item.ItemType
+		obtainAmount := item.ObtainAmount
+		requestAt := item.RequestAt
+		if err := h.obtainItem3or4(tx, UserID, itemID, itemType, obtainAmount, requestAt); err != nil {
 			return err
 		}
 	}
