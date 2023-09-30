@@ -1321,11 +1321,11 @@ func (h *Handler) receivePresent(c echo.Context) error {
 	// エラーチャネルからエラーを受け取る
 	for err := range errChan {
 		if err == ErrUserNotFound || err == ErrItemNotFound {
-			errorResponse(c, http.StatusNotFound, err)
+			return errorResponse(c, http.StatusNotFound, err)
 		} else if err == ErrInvalidItemType {
-			errorResponse(c, http.StatusBadRequest, err)
-		} else {
-			errorResponse(c, http.StatusInternalServerError, err)
+			return errorResponse(c, http.StatusBadRequest, err)
+		} else if err != nil {
+			return errorResponse(c, http.StatusInternalServerError, err)
 		}
 	}
 
