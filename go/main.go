@@ -764,9 +764,14 @@ func (h *Handler) obtainItem3or4s(tx *sqlx.Tx, userId int64, items []*ObtainItem
 		return err
 	}
 
+	itemMastersMap := make(map[int64]*ItemMaster)
+	for _, master := range itemMasters {
+		itemMastersMap[master.ID] = master
+	}
+
 	userItems := make([]*UserItem, 0)
 	for _, item := range items {
-		master := itemMasters[item.ItemID]
+		master := itemMastersMap[item.ItemID]
 		uitem := &UserItem{
 			UserID:    userId,
 			ItemType:  master.ItemType,
