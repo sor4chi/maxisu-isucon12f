@@ -652,24 +652,10 @@ func (h *Handler) obtainItem(usersTx *sqlx.Tx, gachasTx *sqlx.Tx, userID, itemID
 // initialize 初期化処理
 // POST /initialize
 func initialize(c echo.Context) error {
-	for i := 4; i <= 7; i++ {
-		go func(i int) {
-			dbIp := fmt.Sprintf("192.168.0.%d", i)
-			dbHostConfig := fmt.Sprintf("ISUCON_DB_HOST=%s", dbIp)
-
-			dbx, err := connectDB(true, dbIp)
-			if err != nil {
-				c.Logger().Errorf("failed to connect to db: %v", err)
-				return
-			}
-			defer dbx.Close()
-
-			out, err := exec.Command("/bin/sh", "-c", dbHostConfig, SQLDirectory+"init.sh").CombinedOutput()
-			if err != nil {
-				c.Logger().Errorf("Failed to initialize %s: %v", string(out), err)
-				return
-			}
-		}(i)
+	out, err := exec.Command("/bin/sh", "-c", SQLDirectory+"init.sh").CombinedOutput()
+	if err != nil {
+		c.Logger().Errorf("Failed to initialize %s: %v", string(out), err)
+		return err
 	}
 
 	// 80s 待つ
