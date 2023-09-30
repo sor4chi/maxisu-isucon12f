@@ -1858,7 +1858,14 @@ func (h *Handler) generateID() (int64, error) {
 		return 0, err
 	}
 
-	return strconv.ParseInt(id, 16, 64)
+	idInt, err := strconv.ParseInt(id, 16, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	compressTo12Digits := idInt / 1_000
+
+	return compressTo12Digits, nil
 }
 
 // generateUUID UUIDの生成
